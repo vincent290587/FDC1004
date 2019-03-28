@@ -3,6 +3,9 @@
 
 #include <stdint.h>
 
+// 7 bit address is 0b101000
+#define FDC1004_ADDRESS             0b1010000
+
 // Lower and higher range limits (if lower/higher the capdac will be changed)
 #define FDC1004_LOWER_LIMIT        -8388500
 #define FDC1004_UPPER_LIMIT         8388500
@@ -42,8 +45,16 @@ typedef enum {
 	 [ 3:0 ] = Measurement done
  */
 typedef struct {
-	uint8_t meas_done  : 4;
-	uint8_t meas_en    : 4;
+	uint8_t ch4_done   : 1;
+	uint8_t ch3_done   : 1;
+	uint8_t ch2_done   : 1;
+	uint8_t ch1_done   : 1;
+
+	uint8_t ch4_m_en   : 1;
+	uint8_t ch3_m_en   : 1;
+	uint8_t ch2_m_en   : 1;
+	uint8_t ch1_m_en   : 1;
+
 	uint8_t repeat     : 1;
 	uint8_t rsv1       : 1;
 	uint8_t meas_rate  : 2;
@@ -53,6 +64,7 @@ typedef struct {
 
 typedef union {
 	uint16_t val;
+	uint8_t bytes[2];
 	sChannelTriggerBitField bitfield;
 } sChannelTrigger;
 
@@ -98,6 +110,10 @@ extern "C" {
 
 uint8_t FDC1004_init();
 
+bool    FDC1004_is_updated(void);
+
+void    FDC1004_clear_updated(void);
+
 uint8_t FDC1004_configure_measurement(uint8_t meas, sChannelMeasurement *ch_meas);
 
 uint8_t FDC1004_configure_differential_measurement(uint8_t meas, sChannelMeasurement *ch_meas);
@@ -106,9 +122,9 @@ uint8_t FDC1004_trigger_measurement(sChannelTrigger *trigger);
 
 uint8_t FDC1004_read_raw_measurement(uint8_t measurement, int32_t *result);
 
-uint8_t FDC1004_read_measurement(uint8_t measurement, double *result);
+uint8_t FDC1004_read_measurement(uint8_t measurement, float *result);
 
-uint8_t FDC1004_measure_channel(uint8_t channel, double *result);
+uint8_t FDC1004_measure_channel(uint8_t channel, float *result);
 
 
 #ifdef	__cplusplus

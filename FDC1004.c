@@ -8,9 +8,6 @@
 #include "segger_wrapper.h"
 
 
-// 7 bit address is 0b101000
-#define FDC1004_ADDRESS             0b1010000
-
 
 #define I2C_READ_REG(addr, p_reg_addr, p_buffer, byte_cnt) \
 		NRF_TWI_MNGR_WRITE(addr, p_reg_addr, 1, NRF_TWI_MNGR_NO_STOP), \
@@ -27,6 +24,9 @@ static uint8_t FDC1004_MEAS_CONFIG[] = { 0x08, 0x09, 0x0A, 0x0B };
 static uint8_t FDC1004_MEAS_MSB[] = { 0x00, 0x02, 0x04, 0x06 };
 static uint8_t FDC1004_MEAS_LSB[] = { 0x01, 0x03, 0x05, 0x07 };
 static uint8_t FDC1004_capdac_values[] = { 0, 0, 0, 0 };
+
+static int32_t m_raw_measurement;
+static bool m_is_updated;
 
 /**
  * @brief Write data directly to a register in the FDC.
@@ -73,6 +73,60 @@ uint16_t FDC1004_read(uint8_t reg_addr) {
 	return data;
 }
 
+static void _fdc_readout_cb(ret_code_t err_code, void * p_user_data) {
+
+	uint16_t idx = 0;
+	uint16_t lsb;
+	uint16_t msb;
+	uint8_t *data_array = (uint8_t*)p_user_data;
+
+	ASSERT(p_user_data);
+
+	if (err_code) {
+		LOG_WARNING("FDC1004 read error");
+		return;
+	}
+
+	sChannelTrigger res;
+	res.val = 0;
+	res.bytes[0] =data_array[idx++] << 8;
+	res.bytes[1] =data_array[idx++] & 0xFF;
+
+	LOG_WARNING("FDC1004 REG: 0x%02X", res.val);
+
+	msb = data_array[idx++] << 8;
+	msb |= data_array[idx++] & 0xFF;
+
+	lsb = data_array[idx++] << 8;
+	lsb |= data_array[idx++] & 0xFF;
+
+	/* Data format:
+	 *    MSB[15:0] - 16 MSB of measurement
+	 *    LSB[15:8] - 8 LSB of measurement
+	 *    LSB[ 7:0] - Reserved, always 0
+	 */
+	m_raw_measurement = (msb << 8) | (lsb >> 8);
+
+	// Convert Two's complement to signed integer (necessary since the data is shifted by 8)
+	uint32_t raw_result = (msb << 16) | lsb;
+	if (raw_result & ((uint32_t)1 << 31)) {
+		m_raw_measurement |= ((uint32_t)0xFF << 24);
+	}
+
+	m_is_updated = true;
+
+	LOG_DEBUG("FDC1004 read: res=%d", m_raw_measurement);
+
+}
+
+bool FDC1004_is_updated(void) {
+	return m_is_updated;
+}
+
+void FDC1004_clear_updated(void) {
+	m_is_updated = false;
+}
+
 /**
  * @brief Initialize the connection to the FDC1004.
  * @details Initialize the connection to the FDC1004 via hardware TWI. To check
@@ -112,9 +166,7 @@ uint8_t FDC1004_configure_single_measurement(uint8_t meas, sChannelMeasurement *
 	ch_meas->bitfield.n_channel = 0x00u;
 	FDC1004_capdac_values[meas] = ch_meas->bitfield.capdac;
 
-	uint16_t conf_data = ch_meas->val;
-
-	if (FDC1004_write(FDC1004_MEAS_CONFIG[meas], conf_data)) {
+	if (FDC1004_write(FDC1004_MEAS_CONFIG[meas], ch_meas->val)) {
 		// Writing the configuration failed.
 		return 1;
 	}
@@ -135,9 +187,8 @@ uint8_t FDC1004_configure_single_measurement(uint8_t meas, sChannelMeasurement *
 uint8_t FDC1004_configure_differential_measurement(uint8_t meas, sChannelMeasurement *ch_meas) {
 
 	ch_meas->bitfield.capdac = 0x00u;
-	uint16_t conf_data = ch_meas->val;
 
-	if (FDC1004_write(FDC1004_MEAS_CONFIG[meas], conf_data)) {
+	if (FDC1004_write(FDC1004_MEAS_CONFIG[meas], ch_meas->val)) {
 		// Writing the configuration failed.
 		return 1;
 	}
@@ -156,9 +207,27 @@ uint8_t FDC1004_configure_differential_measurement(uint8_t meas, sChannelMeasure
  */
 uint8_t FDC1004_trigger_measurement(sChannelTrigger *trigger) {
 
-	uint16_t conf_data = trigger->val;
+	static uint8_t p_buffer[3] = {0};
 
-	FDC1004_write(FDC1004_REG_FDC, conf_data);
+	// MSB first
+	p_buffer[0] = FDC1004_REG_FDC;
+	p_buffer[1] = trigger->bytes[1];
+	p_buffer[2] = trigger->bytes[0];
+
+	static nrf_twi_mngr_transfer_t const _trigger_transfer[] =
+	{
+			I2C_WRITE(FDC1004_ADDRESS, p_buffer , sizeof(p_buffer))
+	};
+
+	static nrf_twi_mngr_transaction_t NRF_TWI_MNGR_BUFFER_LOC_IND transaction =
+	{
+			.callback            = NULL,
+			.p_user_data         = NULL,
+			.p_transfers         = _trigger_transfer,
+			.number_of_transfers = sizeof(_trigger_transfer) / sizeof(_trigger_transfer[0])
+	};
+
+	i2c_schedule(&transaction);
 
 	return 0;
 }
@@ -167,27 +236,31 @@ uint8_t FDC1004_trigger_measurement(sChannelTrigger *trigger) {
  * @brief Read raw measurement result.
  */
 uint8_t FDC1004_read_raw_measurement(uint8_t measurement, int32_t *result) {
-	// Check if measurement is done
-	uint16_t fdc_register = FDC1004_read(FDC1004_REG_FDC);
-	if (!(fdc_register & (((uint16_t) 1) << (3 - measurement)))) {
-		return 1;
-	}
 
-	uint32_t msb = FDC1004_read(FDC1004_MEAS_MSB[measurement]);
-	uint32_t lsb = FDC1004_read(FDC1004_MEAS_LSB[measurement]);
+	static uint8_t p_ans_buffer[8] = {0};
 
-	/* Data format:
-	 *    MSB[15:0] - 16 MSB of measurement
-	 *    LSB[15:8] - 8 LSB of measurement
-	 *    LSB[ 7:0] - Reserved, always 0
-	 */
-	(*result) = (msb << 8) | (lsb >> 8);
+	static uint8_t NRF_TWI_MNGR_BUFFER_LOC_IND readout_reg[3];
 
-	// Convert Two's complement to signed integer (necessary since the data is shifted by 8)
-	uint32_t raw_result = (msb << 16) | lsb;
-	if (raw_result & ((uint32_t) 1 << 31)) {
-		(*result) |= ((uint32_t) 0xFF << 24);
-	}
+	readout_reg[0] = FDC1004_REG_FDC;
+	readout_reg[1] = FDC1004_MEAS_MSB[measurement];
+	readout_reg[2] = FDC1004_MEAS_LSB[measurement];
+
+	static nrf_twi_mngr_transfer_t const _readout_transfer[] =
+	{
+			I2C_READ_REG(FDC1004_ADDRESS, readout_reg  , p_ans_buffer+0 , 2),
+			I2C_READ_REG(FDC1004_ADDRESS, readout_reg+1, p_ans_buffer+2 , 2),
+			I2C_READ_REG(FDC1004_ADDRESS, readout_reg+2, p_ans_buffer+4 , 2)
+	};
+
+	static nrf_twi_mngr_transaction_t NRF_TWI_MNGR_BUFFER_LOC_IND transaction =
+	{
+			.callback            = _fdc_readout_cb,
+			.p_user_data         = p_ans_buffer,
+			.p_transfers         = _readout_transfer,
+			.number_of_transfers = sizeof(_readout_transfer) / sizeof(_readout_transfer[0])
+	};
+
+	i2c_schedule(&transaction);
 
 	return 0;
 }
@@ -203,21 +276,18 @@ uint8_t FDC1004_read_raw_measurement(uint8_t measurement, int32_t *result) {
  *
  * @return Success code
  */
-uint8_t FDC1004_read_measurement(uint8_t measurement, double *result) {
-	int32_t data;
-	if (FDC1004_read_raw_measurement(measurement, &data)) {
-		return 1;
-	}
+uint8_t FDC1004_read_measurement(uint8_t measurement, float *result) {
+
 	// Value near lower end of the range
-	if (data <= FDC1004_LOWER_LIMIT) {
+	if (m_raw_measurement <= FDC1004_LOWER_LIMIT) {
 		return 2;
 	}
 	// Value near upper end of the range
-	if (data >= FDC1004_UPPER_LIMIT) {
+	if (m_raw_measurement >= FDC1004_UPPER_LIMIT) {
 		return 3;
 	}
 
-	(*result) = (double) data / ((int32_t) 1 << 19)
+	(*result) = (float) m_raw_measurement / ((int32_t) 1 << 19)
 			+ FDC1004_capdac_values[measurement] * 3.125;
 	return 0;
 }
@@ -233,7 +303,7 @@ uint8_t FDC1004_read_measurement(uint8_t measurement, double *result) {
  * @param result Result from measurement.
  * @return Status code
  */
-//uint8_t FDC1004_measure_channel(uint8_t channel, double *result) {
+//uint8_t FDC1004_measure_channel(uint8_t channel, float *result) {
 //	uint8_t error_code = 0;
 //	while (1) {
 //		FDC1004_configure_single_measurement(channel, channel,
