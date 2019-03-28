@@ -31,8 +31,6 @@
 #define FDC1004_DEVICE_ID            0x1004
 
 extern uint8_t FDC1004_init();
-extern uint8_t FDC1004_write(uint8_t reg, uint16_t data);
-extern uint16_t FDC1004_read(uint8_t reg);
 extern uint8_t FDC1004_configure_measurement(uint8_t measurement, uint8_t channel, uint8_t capdac);
 extern uint8_t FDC1004_configure_differential_measurement(uint8_t measurement, uint8_t channel_a, uint8_t channel_b);
 extern uint8_t FDC1004_trigger_measurement(uint8_t measurement);
