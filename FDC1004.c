@@ -8,6 +8,10 @@
 #include "segger_wrapper.h"
 
 
+// 7 bit address is 0b101000
+#define FDC1004_ADDRESS             0b1010000
+
+
 #define I2C_READ_REG(addr, p_reg_addr, p_buffer, byte_cnt) \
 		NRF_TWI_MNGR_WRITE(addr, p_reg_addr, 1, NRF_TWI_MNGR_NO_STOP), \
 		NRF_TWI_MNGR_READ (addr, p_buffer, byte_cnt, 0)
@@ -103,19 +107,14 @@ uint8_t FDC1004_init() {
  * @param capdac Capacity offset (C_offset = capdac * 3.125 pF)
  * @return 0 if successful, 1 otherwise
  */
-uint8_t FDC1004_configure_single_measurement(uint8_t measurement,
-		uint8_t channel, uint8_t capdac) {
-	/* Measurement configuration register:
-	 [15:13] = Positive channel number
-	 [12:10] = Negative channel number (or CAPDAC/DISABLE)
-	 [ 9:5 ] = CAPDAC 0b00000 - 0b11111 (C_offset = CAPDAC * 3.125 pF)
-	 [ 4:0 ] = RESERVED, always 0
-	 */
-	uint16_t conf_data = ((uint16_t) channel) << 13;
-	conf_data |= FDC1004_CAPDAC << 10;
-	conf_data |= ((uint16_t) capdac) << 5;
-	FDC1004_capdac_values[measurement] = capdac;
-	if (FDC1004_write(FDC1004_MEAS_CONFIG[measurement], conf_data)) {
+uint8_t FDC1004_configure_single_measurement(uint8_t meas, sChannelMeasurement *ch_meas) {
+
+	ch_meas->bitfield.n_channel = 0x00u;
+	FDC1004_capdac_values[meas] = ch_meas->bitfield.capdac;
+
+	uint16_t conf_data = ch_meas->val;
+
+	if (FDC1004_write(FDC1004_MEAS_CONFIG[meas], conf_data)) {
 		// Writing the configuration failed.
 		return 1;
 	}
@@ -133,18 +132,12 @@ uint8_t FDC1004_configure_single_measurement(uint8_t measurement,
  * @param capdac Capacity offset (C_offset = capdac * 3.125 pF)
  * @return 0 if successful, 1 otherwise
  */
-uint8_t FDC1004_configure_differential_measurement(uint8_t measurement,
-		uint8_t channel_a, uint8_t channel_b) {
-	/* Measurement configuration register:
-	 [15:13] = Positive channel number
-	 [12:10] = Negative channel number (or CAPDAC/DISABLE)
-	 [ 9:5 ] = CAPDAC 0b00000 - 0b11111 (C_offset = CAPDAC * 3.125 pF)
-	 [ 4:0 ] = RESERVED, always 0
-	 */
-	uint16_t conf_data = ((uint16_t) channel_a) << 13;
-	conf_data |= ((uint16_t) channel_b) << 10;
-	conf_data |= ((uint16_t) 0b00000) << 5;
-	if (FDC1004_write(FDC1004_MEAS_CONFIG[measurement], conf_data)) {
+uint8_t FDC1004_configure_differential_measurement(uint8_t meas, sChannelMeasurement *ch_meas) {
+
+	ch_meas->bitfield.capdac = 0x00u;
+	uint16_t conf_data = ch_meas->val;
+
+	if (FDC1004_write(FDC1004_MEAS_CONFIG[meas], conf_data)) {
 		// Writing the configuration failed.
 		return 1;
 	}
@@ -161,21 +154,12 @@ uint8_t FDC1004_configure_differential_measurement(uint8_t measurement,
  * @param measurement Measurement ID (0 - 3)
  * @return Success code
  */
-uint8_t FDC1004_trigger_measurement(uint8_t measurement) {
-	/* FDC configuration register:
-	 [ 15  ] = Reset
-	 [14:12] = RESERVED, always 0 (RO)
-	 [11:10] = Measurement rate
-	 [  9  ] = RESERVED, always 0 (RO)
-	 [  8  ] = Repeat
-	 [ 7:4 ] = Enable measurement 1-4
-	 [ 3:0 ] = Measurement done
-	 */
-	uint16_t conf_data = 0;
-	conf_data |= FDC1004_RATE << 10;
-	conf_data |= ((uint16_t) 0) << 8; // Dont repeat
-	conf_data |= ((uint16_t) 1) << (7 - measurement);
+uint8_t FDC1004_trigger_measurement(sChannelTrigger *trigger) {
+
+	uint16_t conf_data = trigger->val;
+
 	FDC1004_write(FDC1004_REG_FDC, conf_data);
+
 	return 0;
 }
 
@@ -249,43 +233,43 @@ uint8_t FDC1004_read_measurement(uint8_t measurement, double *result) {
  * @param result Result from measurement.
  * @return Status code
  */
-uint8_t FDC1004_measure_channel(uint8_t channel, double *result) {
-	uint8_t error_code = 0;
-	while (1) {
-		FDC1004_configure_single_measurement(channel, channel,
-				FDC1004_capdac_values[channel]);
-		FDC1004_trigger_measurement(channel);
-
-		// Wait until result is ready
-		while (1) {
-			error_code = FDC1004_read_measurement(channel, result);
-			if (error_code != 1) {
-				break;
-			}
-		}
-
-		// Measurement done
-		if (error_code == 0) {
-			return 0;
-		}
-
-		// Capdac value is to high (capacity is below range)
-		if (error_code == 2) {
-			if (FDC1004_capdac_values[channel] > 0) {
-				FDC1004_capdac_values[channel] -= 1;
-			} else {
-				return 1;
-			}
-		}
-
-		// Capdac value is to low (capacity is over range)
-		if (error_code == 3) {
-			if (FDC1004_capdac_values[channel] < 31) {
-				FDC1004_capdac_values[channel] += 1;
-			} else {
-				return 1;
-			}
-		}
-	}
-	return 0;
-}
+//uint8_t FDC1004_measure_channel(uint8_t channel, double *result) {
+//	uint8_t error_code = 0;
+//	while (1) {
+//		FDC1004_configure_single_measurement(channel, channel,
+//				FDC1004_capdac_values[channel]);
+//		FDC1004_trigger_measurement(channel);
+//
+//		// Wait until result is ready
+//		while (1) {
+//			error_code = FDC1004_read_measurement(channel, result);
+//			if (error_code != 1) {
+//				break;
+//			}
+//		}
+//
+//		// Measurement done
+//		if (error_code == 0) {
+//			return 0;
+//		}
+//
+//		// Capdac value is to high (capacity is below range)
+//		if (error_code == 2) {
+//			if (FDC1004_capdac_values[channel] > 0) {
+//				FDC1004_capdac_values[channel] -= 1;
+//			} else {
+//				return 1;
+//			}
+//		}
+//
+//		// Capdac value is to low (capacity is over range)
+//		if (error_code == 3) {
+//			if (FDC1004_capdac_values[channel] < 31) {
+//				FDC1004_capdac_values[channel] += 1;
+//			} else {
+//				return 1;
+//			}
+//		}
+//	}
+//	return 0;
+//}
