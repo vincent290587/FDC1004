@@ -92,7 +92,7 @@ static void _fdc_readout_cb(ret_code_t err_code, void * p_user_data) {
 	res.bytes[0] =data_array[idx++] << 8;
 	res.bytes[1] =data_array[idx++] & 0xFF;
 
-	LOG_WARNING("FDC1004 REG: 0x%02X", res.val);
+	LOG_DEBUG("FDC1004 REG: 0x%02X", res.val);
 
 	msb = data_array[idx++] << 8;
 	msb |= data_array[idx++] & 0xFF;
@@ -113,9 +113,9 @@ static void _fdc_readout_cb(ret_code_t err_code, void * p_user_data) {
 		m_raw_measurement |= ((uint32_t)0xFF << 24);
 	}
 
-	m_is_updated = true;
-
 	LOG_DEBUG("FDC1004 read: res=%d", m_raw_measurement);
+
+	m_is_updated = true;
 
 }
 
@@ -137,14 +137,18 @@ void FDC1004_clear_updated(void) {
  */
 uint8_t FDC1004_init() {
 
+	uint16_t ret;
+
 	// Check manufacturer id
-	if (FDC1004_read(FDC1004_REG_MANUFACTURER_ID) != FDC1004_MANUFACTURER_ID) {
+	if ((ret = FDC1004_read(FDC1004_REG_MANUFACTURER_ID)) != FDC1004_MANUFACTURER_ID) {
+		LOG_ERROR("FDC1004 wrong man id.: %u", ret);
 		return 1;
 	}
 
 	// Check device id
-	if (FDC1004_read(FDC1004_REG_DEVICE_ID) != FDC1004_DEVICE_ID) {
-		return 1;
+	if ((ret = FDC1004_read(FDC1004_REG_DEVICE_ID)) != FDC1004_DEVICE_ID) {
+		LOG_ERROR("FDC1004 wrong dev id.: %u", ret);
+		return 2;
 	}
 
 	return 0;
@@ -237,7 +241,7 @@ uint8_t FDC1004_trigger_measurement(sChannelTrigger *trigger) {
  */
 uint8_t FDC1004_read_raw_measurement(uint8_t measurement, int32_t *result) {
 
-	static uint8_t p_ans_buffer[8] = {0};
+	static uint8_t p_ans_buffer[16] = {0};
 
 	static uint8_t NRF_TWI_MNGR_BUFFER_LOC_IND readout_reg[3];
 
@@ -287,8 +291,13 @@ uint8_t FDC1004_read_measurement(uint8_t measurement, float *result) {
 		return 3;
 	}
 
-	(*result) = (float) m_raw_measurement / ((int32_t) 1 << 19)
-			+ FDC1004_capdac_values[measurement] * 3.125;
+	float res = (float) m_raw_measurement / ((int32_t) 1 << 19);
+//	res += (float)FDC1004_capdac_values[measurement] * 3.125;
+
+	LOG_DEBUG("Raw val in fF: %d", (int32_t)(res * 1000));
+
+	if (result) *result = res;
+
 	return 0;
 }
 

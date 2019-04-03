@@ -17,17 +17,14 @@
 // Measuring rate (0b01 = 100S/s, 0b010 = 200S/s, 0b11 = 400S/s)
 #define FDC1004_RATE                0b01UL
 
-// Communication rate for I2C-Bus (in Hz)
-#define SCL_CLOCK                   1000000L
-
 // Registers
 #define FDC1004_REG_FDC              0x0C
 #define FDC1004_REG_MANUFACTURER_ID  0xFE
 #define FDC1004_REG_DEVICE_ID        0xFF
 
 // Device properties
-#define FDC1004_MANUFACTURER_ID      0x5449
-#define FDC1004_DEVICE_ID            0x1004
+#define FDC1004_MANUFACTURER_ID      18772u
+#define FDC1004_DEVICE_ID            1040u
 
 typedef enum {
 	eConfRegRate100SPS   = 0b01,
