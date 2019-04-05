@@ -29,6 +29,13 @@
 #define FDC1004_MANUFACTURER_ID      0x5449
 #define FDC1004_DEVICE_ID            0x1004
 
+#define FDC1004_UPPER_BOUND          ((int16_t) 0x4000)
+#define FDC1004_LOWER_BOUND          (-1 * FDC1004_UPPER_BOUND)
+
+#define ATTOFARADS_UPPER_WORD        (457) //number of attofarads for each 8th most lsb (lsb of the upper 16 bit half-word)
+#define FEMTOFARADS_CAPDAC           (3028) //number of femtofarads for each lsb of the capdac
+
+
 typedef enum {
 	eConfRegRate100SPS   = 0b01,
 	eConfRegRate200SPS   = 0b10,
@@ -122,9 +129,7 @@ uint8_t FDC1004_trigger_measurement(sChannelTrigger *trigger);
 
 uint8_t FDC1004_read_raw_measurement(uint8_t measurement, int32_t *result);
 
-uint8_t FDC1004_read_measurement(uint8_t measurement, float *result);
-
-uint8_t FDC1004_measure_channel(uint8_t channel, float *result);
+uint8_t FDC1004_read_measurement(uint8_t measurement, int32_t *result);
 
 
 #ifdef	__cplusplus
