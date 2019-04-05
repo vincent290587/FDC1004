@@ -23,8 +23,8 @@
 #define FDC1004_REG_DEVICE_ID        0xFF
 
 // Device properties
-#define FDC1004_MANUFACTURER_ID      18772u
-#define FDC1004_DEVICE_ID            1040u
+#define FDC1004_MANUFACTURER_ID      0x5449
+#define FDC1004_DEVICE_ID            0x1004
 
 typedef enum {
 	eConfRegRate100SPS   = 0b01,
@@ -41,7 +41,7 @@ typedef enum {
 	 [ 7:4 ] = Enable measurement 1-4
 	 [ 3:0 ] = Measurement done
  */
-typedef struct {
+typedef struct __attribute__((packed)) {
 	uint8_t ch4_done   : 1;
 	uint8_t ch3_done   : 1;
 	uint8_t ch2_done   : 1;
@@ -87,12 +87,12 @@ typedef enum {
 	 [ 9:5 ] = CAPDAC 0b00000 - 0b11111 (C_offset = CAPDAC * 3.125 pF)
 	 [ 4:0 ] = RESERVED, always 0
  */
-typedef struct {
+typedef struct __attribute__((packed)) {
 	uint8_t reserved  : 5;
 	uint8_t capdac    : 5;
 	uint8_t n_channel : 3;
 	uint8_t p_channel : 3;
-} sChannelMeasurementBitField;
+} sChannelMeasurementBitField ;
 
 typedef union {
 	uint16_t val;
@@ -112,6 +112,8 @@ bool    FDC1004_is_updated(void);
 void    FDC1004_clear_updated(void);
 
 uint8_t FDC1004_configure_measurement(uint8_t meas, sChannelMeasurement *ch_meas);
+
+uint8_t FDC1004_configure_single_measurement(uint8_t meas, sChannelMeasurement *ch_meas);
 
 uint8_t FDC1004_configure_differential_measurement(uint8_t meas, sChannelMeasurement *ch_meas);
 
