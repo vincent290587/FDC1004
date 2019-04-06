@@ -79,6 +79,11 @@ typedef enum {
   eCHACIN4   = 0b011,
 } eCHA;
 
+// The single ended mode is enabled when the CHB register of
+//  the Measurements configuration registers (see Table 4) are set to b100 or
+//  b111.
+// The FDC1004 will perform a differential measurement when CHB field of the Measurements
+//  Configuration Registers is less than b100.
 typedef enum {
   eCHBCIN1   = eCHACIN1,
   eCHBCIN2   = eCHACIN2,
@@ -97,8 +102,8 @@ typedef enum {
 typedef struct __attribute__((packed)) {
 	uint8_t reserved  : 5;
 	uint8_t capdac    : 5;
-	uint8_t n_channel : 3;
-	uint8_t p_channel : 3;
+	eCHB n_channel : 3;
+	eCHA p_channel : 3;
 } sChannelMeasurementBitField ;
 
 typedef union {

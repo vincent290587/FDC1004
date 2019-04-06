@@ -98,7 +98,7 @@ static void _fdc_status_cb(ret_code_t err_code, void * p_user_data) {
 		if (res.bitfield.ch1_done) {
 			m_is_measured = true;
 			LOG_WARNING("FDC1004 measurement ready");
-		} else if (res.bitfield.ch1_done) {
+		} else {
 			m_is_measured = false;
 		}
 	} else {
